@@ -27,6 +27,7 @@ class TorchLMHeadGRPO(torch.nn.Module):
         epsilon_high: float = 0.2,
         temperature: float = 1.0,
         use_ref_model: bool = True,
+        importance_sampling_level: str = "token",
         loss_type: str = "bnpo",
         max_completion_length: int | None = None,
     ):
@@ -40,6 +41,7 @@ class TorchLMHeadGRPO(torch.nn.Module):
         self.use_ref_model = use_ref_model
         self.loss_type = loss_type
         self.max_completion_length = max_completion_length
+        self.importance_sampling_level = importance_sampling_level
         if self.loss_type == "dr_grpo":
             assert self.max_completion_length is not None, "max_completion_length must be provided for dr_grpo"
 
@@ -84,7 +86,16 @@ class TorchLMHeadGRPO(torch.nn.Module):
         old_per_token_logps = (
             old_per_token_logps.float() if old_per_token_logps is not None else per_token_logps.detach()
         )
-        coef_1 = torch.exp(per_token_logps - old_per_token_logps)
+
+        if self.importance_sampling_level == "token":
+            log_importance_weights = per_token_logps - old_per_token_logps
+        elif self.importance_sampling_level == "sequence":
+            log_ratio = per_token_logps - old_per_token_logps
+            log_importance_weights = (log_ratio * attention_mask).sum(-1) / attention_mask.sum(-1).clamp(min=1.0)
+            log_importance_weights = log_importance_weights.unsqueeze(-1)
+        
+
+        coef_1 = torch.exp(log_importance_weights)
         coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
         per_token_loss1 = coef_1 * advantages.unsqueeze(1)
         per_token_loss2 = coef_2 * advantages.unsqueeze(1)
@@ -109,10 +120,15 @@ class TorchLMHeadGRPO(torch.nn.Module):
         metrics = []
         if self.beta != 0.0:
             metrics.append(((kl_div * attention_mask).sum() / torch.clamp(attention_mask.sum(), min=1.0)))
+        
         is_clipped = ((coef_1 < 1 - self.epsilon_low) & (advantages.unsqueeze(1) < 0)) | (
             (coef_1 > 1 + self.epsilon_high) & (advantages.unsqueeze(1) > 0)
         )
-        metrics.append((is_clipped * attention_mask).sum() / torch.clamp(attention_mask.sum(), min=1.0))
+        if self.importance_sampling_level == "token":
+            metrics.append((is_clipped * attention_mask).sum() / torch.clamp(attention_mask.sum(), min=1.0))
+        elif self.importance_sampling_level == "sequence":
+            metrics.append(is_clipped.float().mean())
+
         return loss, metrics
 
 
@@ -130,6 +146,7 @@ class LigerLMHeadGRPO(torch.nn.Module):
         use_ref_model: bool = True,
         loss_type: str = "bnpo",
         max_completion_length: int | None = None,
+        importance_sampling_level: str = "token",  
     ):
         super().__init__()
         self.lin = torch.nn.Linear(in_features=H, out_features=V, bias=bias, dtype=dtype)
@@ -143,6 +160,7 @@ class LigerLMHeadGRPO(torch.nn.Module):
             compiled=True,
             loss_type=loss_type,
             max_completion_length=max_completion_length,
+            importance_sampling_level=importance_sampling_level,
         )
 
     def forward(
@@ -203,6 +221,7 @@ class LigerLMHeadGRPO(torch.nn.Module):
     ],
 )
 @pytest.mark.parametrize("loss_type", ["bnpo", "grpo", "dr_grpo"])
+@pytest.mark.parametrize("importance_sampling_level", ["token", "sequence"])
 def test_correctness(
     B,
     T,
@@ -221,6 +240,7 @@ def test_correctness(
     use_ref_model,
     old_per_token_logps,
     loss_type,
+    importance_sampling_level,
 ):
     # Reset torch compiler cache for each parameter of the test case
     torch.compiler.reset()
@@ -238,6 +258,7 @@ def test_correctness(
         use_ref_model=use_ref_model,
         loss_type=loss_type,
         max_completion_length=max_completion_length,
+        importance_sampling_level=importance_sampling_level,
     )
     liger_lm_head_grpo = LigerLMHeadGRPO(
         H=H,
@@ -251,6 +272,7 @@ def test_correctness(
         use_ref_model=use_ref_model,
         loss_type=loss_type,
         max_completion_length=max_completion_length,
+        importance_sampling_level=importance_sampling_level,
     )
 
     # Initialize weights
@@ -389,6 +411,7 @@ def test_functional_correctness(
     # Reset torch compiler cache for each parameter of the test case
     torch.compiler.reset()
     max_completion_length = T
+    importance_sampling_level = "token"
     _input = torch.randn(B, T, H, device=device, dtype=dtype) * scalar
     input1 = _input.detach().clone().requires_grad_(True)
     input2 = _input.detach().clone().requires_grad_(True)
@@ -445,6 +468,7 @@ def test_functional_correctness(
         0.2,
         "bnpo",
         max_completion_length,
+        importance_sampling_level,
         1.0,
         False,
         True,
@@ -468,6 +492,7 @@ def test_functional_correctness(
         0.2,
         "bnpo",
         max_completion_length,
+        importance_sampling_level,
         1.0,
         False,
         True,
