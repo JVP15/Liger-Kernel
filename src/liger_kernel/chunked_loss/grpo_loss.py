@@ -61,7 +61,9 @@ class LigerFusedLinearGRPOFunction(LigerFusedLinearPPOBase):
             log_importance_weights = (logratio * attention_mask).sum(-1) / attention_mask.sum(-1).clamp(min=1.0)
             log_importance_weights = log_importance_weights.unsqueeze(-1)
         else:
-            raise ValueError(f"Unknown importance_sampling_level: {importance_sampling_level}, expected 'token' or 'sequence'")
+            raise ValueError(
+                f"Unknown importance_sampling_level: {importance_sampling_level}, expected 'token' or 'sequence'"
+            )
 
         coef_1 = torch.exp(log_importance_weights)
         coef_2 = clip_coef_fn(coef_1, epsilon_low, epsilon_high)
@@ -98,7 +100,7 @@ class LigerFusedLinearGRPOFunction(LigerFusedLinearPPOBase):
         metrics = []
         if beta != 0.0:
             metrics.append(((kl_div * attention_mask).sum() / torch.clamp(full_attention_mask.sum(), min=1.0)))
-        
+
         is_clipped = ((coef_1 < 1 - epsilon_low) & (advantages.unsqueeze(1) < 0)) | (
             (coef_1 > 1 + epsilon_high) & (advantages.unsqueeze(1) > 0)
         )
@@ -107,7 +109,7 @@ class LigerFusedLinearGRPOFunction(LigerFusedLinearPPOBase):
         elif importance_sampling_level == "sequence":
             # for sequence level clipping, we can just calculate the mean since the batch dim size is 1
             metrics.append(is_clipped.float().mean())
-            
+
         return loss, metrics
 
     @classmethod
@@ -130,7 +132,7 @@ class LigerFusedLinearGRPOFunction(LigerFusedLinearPPOBase):
         epsilon_high=0.2,
         loss_type="bnpo",
         max_completion_length=None,
-        importance_sampling_level="token", 
+        importance_sampling_level="token",
         temperature=1.0,
         compiled=True,
         use_ref_model=True,
@@ -231,7 +233,7 @@ class LigerFusedLinearGRPOLoss(torch.nn.Module):
         loss_type: str = "bnpo",
         max_completion_length: Optional[int] = None,
         temperature: float = 1.0,
-        importance_sampling_level: str = "token", # choices are "token" or "sequence" from GSPO
+        importance_sampling_level: str = "token",  # choices are "token" or "sequence" from GSPO
     ):
         """
         Args:

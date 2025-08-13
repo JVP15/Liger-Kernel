@@ -93,7 +93,6 @@ class TorchLMHeadGRPO(torch.nn.Module):
             log_ratio = per_token_logps - old_per_token_logps
             log_importance_weights = (log_ratio * attention_mask).sum(-1) / attention_mask.sum(-1).clamp(min=1.0)
             log_importance_weights = log_importance_weights.unsqueeze(-1)
-        
 
         coef_1 = torch.exp(log_importance_weights)
         coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
@@ -120,7 +119,7 @@ class TorchLMHeadGRPO(torch.nn.Module):
         metrics = []
         if self.beta != 0.0:
             metrics.append(((kl_div * attention_mask).sum() / torch.clamp(attention_mask.sum(), min=1.0)))
-        
+
         is_clipped = ((coef_1 < 1 - self.epsilon_low) & (advantages.unsqueeze(1) < 0)) | (
             (coef_1 > 1 + self.epsilon_high) & (advantages.unsqueeze(1) > 0)
         )
@@ -146,7 +145,7 @@ class LigerLMHeadGRPO(torch.nn.Module):
         use_ref_model: bool = True,
         loss_type: str = "bnpo",
         max_completion_length: int | None = None,
-        importance_sampling_level: str = "token",  
+        importance_sampling_level: str = "token",
     ):
         super().__init__()
         self.lin = torch.nn.Linear(in_features=H, out_features=V, bias=bias, dtype=dtype)
