@@ -72,7 +72,7 @@ class LigerFusedLinearJSDFunction(LigerFusedLinearDistillationBase):
         Returns:
             torch.Tensor: Computed loss
         """
-        return super().forward(
+        total_loss, soft_loss, hard_loss = super().forward(
             cls=cls,
             ctx=ctx,
             student_input=student_input,
@@ -90,9 +90,11 @@ class LigerFusedLinearJSDFunction(LigerFusedLinearDistillationBase):
             temperature=temperature,
             compiled=compiled,
         )
+        return total_loss, soft_loss, hard_loss
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx, grad_output, grad_soft_loss=None, grad_hard_loss=None):
+        # Only use the gradient for the total loss
         grads = LigerFusedLinearDistillationBase.backward(ctx, grad_output)[:6]
 
         return (
@@ -152,7 +154,7 @@ class LigerFusedLinearJSDLoss(torch.nn.Module):
         true_labels: torch.LongTensor,
         student_bias: torch.Tensor = None,
         teacher_bias: torch.Tensor = None,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Compute the JSD distillation loss.
 
@@ -164,7 +166,7 @@ class LigerFusedLinearJSDLoss(torch.nn.Module):
             true_labels (torch.LongTensor): Target labels tensor
 
         Returns:
-            torch.Tensor: Computed loss
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]: (total_loss, jsd_loss, nll_loss)
         """
         return LigerFusedLinearJSDFunction.apply(
             student_input,

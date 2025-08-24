@@ -42,7 +42,7 @@ class LigerFusedLinearCosineSimilarityFunction(LigerFusedLinearDistillationBase)
         compiled: bool = True,
         chunk_size: int = 1024,
     ):
-        return super().forward(
+        total_loss, soft_loss, hard_loss = super().forward(
             cls=cls,
             ctx=ctx,
             student_input=student_input,
@@ -60,9 +60,11 @@ class LigerFusedLinearCosineSimilarityFunction(LigerFusedLinearDistillationBase)
             temperature=temperature,
             compiled=compiled,
         )
+        return total_loss, soft_loss, hard_loss
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx, grad_output, grad_soft_loss=None, grad_hard_loss=None):
+        # Only use the gradient for the total loss
         grads = LigerFusedLinearDistillationBase.backward(ctx, grad_output)[:6]
 
         return (
@@ -108,7 +110,20 @@ class LigerFusedLinearCosineSimilarityLoss(torch.nn.Module):
         true_labels: torch.LongTensor,
         student_bias: torch.Tensor = None,
         teacher_bias: torch.Tensor = None,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Compute the cosine similarity distillation loss.
+
+        Args:
+            student_input (torch.Tensor): Student input tensor
+            student_weight (torch.Tensor): Student weight tensor
+            teacher_input (torch.Tensor): Teacher input tensor
+            teacher_weight (torch.Tensor): Teacher weight tensor
+            true_labels (torch.LongTensor): Target labels tensor
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]: (total_loss, cosine_loss, nll_loss)
+        """
         return LigerFusedLinearCosineSimilarityFunction.apply(
             student_input,
             student_weight,

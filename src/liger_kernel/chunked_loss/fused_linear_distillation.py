@@ -187,6 +187,8 @@ class LigerFusedLinearDistillationBase(torch.autograd.Function):
         grad_inputs = []
         grad_bias = torch.zeros_like(student_bias) if student_bias is not None else None
         loss_acc = torch.zeros((), device=student_input.device)
+        soft_loss_acc = torch.zeros((), device=student_input.device)
+        hard_loss_acc = torch.zeros((), device=student_input.device)
 
         loss_func_to_call = partial(
             LigerFusedLinearDistillationBase._compute_loss,
@@ -247,7 +249,7 @@ class LigerFusedLinearDistillationBase(torch.autograd.Function):
                 )
             grad_weight.add_(chunk_grad_weight)
             loss_acc.add_(chunk_loss)
-            return chunk_grad_input
+            return chunk_grad_input, chunk_soft_loss, chunk_hard_loss
 
         if compiled:
             accumulate_chunk = torch.compile(accumulate_chunk)
@@ -260,15 +262,17 @@ class LigerFusedLinearDistillationBase(torch.autograd.Function):
         for student_input_chunk, teacher_input_chunk, target_chunk in zip(
             _student_input_chunks, _teacher_input_chunks, _target_chunks
         ):
-            grad_input = accumulate_chunk(student_input_chunk, teacher_input_chunk, target_chunk)
+            grad_input, chunk_soft_loss, chunk_hard_loss = accumulate_chunk(student_input_chunk, teacher_input_chunk, target_chunk)
             grad_inputs.append(grad_input)
+            soft_loss_acc.add_(chunk_soft_loss)
+            hard_loss_acc.add_(chunk_hard_loss)
 
         ctx.save_for_backward(
             torch.cat(grad_inputs, dim=0),
             grad_weight,
             grad_bias,
         )
-        return loss_acc
+        return loss_acc, soft_loss_acc, hard_loss_acc
 
     @staticmethod
     def backward(ctx, grad_output):
